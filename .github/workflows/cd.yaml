@@ -47,7 +47,7 @@ jobs:
         with:
           debug: true
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ubuntu
           key_path: ${{ runner.temp }}/deploy_key
           port: ${{ secrets.EC2_SSH_PORT }}
           script: |
