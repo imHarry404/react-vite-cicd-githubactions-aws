@@ -4,12 +4,22 @@ on:
   workflow_run:
     workflows: ["CI Pipeline"]
     types: [completed]
-#to run this cd workflow only if ci workflow is successful
+#to run this cd workflow only if ci workflow is successful,secrets added
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: [self-hosted, linux]
     steps:
+      - name: Validate SSH credentials
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          if [ -z "$SSH_PRIVATE_KEY" ] && [ -z "$SSH_PASSWORD" ]; then
+            echo "ERROR: Missing secrets. Set repository secrets 'SSH_PRIVATE_KEY' (preferred) or 'SSH_PASSWORD'."
+            exit 1
+          fi
+
       - name: Deploy to EC2 via SSH and Docker
         uses: appleboy/ssh-action@v0.1.8
         with:
