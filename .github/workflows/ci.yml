@@ -21,4 +21,6 @@ jobs:
       with:
         context: .
         push: true
-        tags: imharry404/react-vite-githubactions-aws:latest
+        tags: |
+          imharry404/react-vite-githubactions-aws:latest
+          imharry404/react-vite-githubactions-aws:${{ github.sha }}

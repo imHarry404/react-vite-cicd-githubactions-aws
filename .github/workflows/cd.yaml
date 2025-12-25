@@ -1,10 +1,10 @@
-name: CD
+name: CD - deploy to EC2
 
 on:
   workflow_run:
     workflows: ["CI Pipeline"]
     types: [completed]
-#to run this cd workflow only if ci workflow is successful,secrets added
+
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
@@ -19,13 +19,33 @@ jobs:
             echo "ERROR: Missing secrets. Set repository secrets 'SSH_PRIVATE_KEY' (preferred) or 'SSH_PASSWORD'."
             exit 1
           fi
+      - name: print and resolve EC2 host
+        run: |
+          echo "EC2_HOST (secret) = '${{ secrets.EC2_HOST }}'"
+          if command -v dig >/dev/null 2>&1; then
+            dig +short "${{ secrets.EC2_HOST }}" || true
+          else
+            ping -c 1 "${{ secrets.EC2_HOST }}" || true
+          fi
+
+      - name: Prepare SSH private key file
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          echo "Writing SSH private key to runner temp"
+          echo "Runner temp: $RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP"
+          printf "%s" "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
 
       - name: Deploy to EC2 via SSH and Docker
         uses: appleboy/ssh-action@v0.1.8
         with:
+          debug: true
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key_path: ${{ runner.temp }}/deploy_key
           port: ${{ secrets.EC2_SSH_PORT }}
           script: |
             set -e
@@ -35,7 +55,9 @@ jobs:
               echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin || true
             fi
 
-            IMAGE=imharry404/react-vite-githubactions-aws:latest
+            # Prefer deploying the image pushed by CI with the commit SHA tag
+            IMAGE=imharry404/react-vite-githubactions-aws:${{ github.event.workflow_run.head_sha }}
+            echo "Deploying image tag: ${IMAGE}"
             echo "Pulling $IMAGE"
             docker pull $IMAGE
 
@@ -45,3 +67,25 @@ jobs:
 
             echo "Starting container"
             docker run -d --name hello-react -p 80:80 --restart=always $IMAGE
+
+            # Wait for the service to become healthy (attempt up to 30s)
+            echo "Waiting for service to respond on http://localhost:80"
+            for i in 1 2 3 4 5 6; do
+              if curl -sSf http://localhost:80 >/dev/null; then
+                echo "Service is up"
+                break
+              else
+                echo "Service not ready yet, retrying... ($i)"
+                sleep 5
+              fi
+            done
+            if ! curl -sSf http://localhost:80 >/dev/null; then
+              echo "ERROR: Service did not become ready"
+              exit 1
+            fi
+
+      - name: remove temporary SSH key
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+        run: |
+         echo "Removing key from $RUNNER_TEMP/deploy_key"
+         rm -f "$RUNNER_TEMP/deploy_key" || true
