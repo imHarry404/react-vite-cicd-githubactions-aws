@@ -29,10 +29,13 @@ jobs:
           fi
 
       - name: Prepare SSH private key file
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "No SSH_PRIVATE_KEY provided; skipping key write"
+            exit 0
+          fi
           echo "Writing SSH private key to runner temp"
           echo "Runner temp: $RUNNER_TEMP"
           mkdir -p "$RUNNER_TEMP"
@@ -85,7 +88,10 @@ jobs:
             fi
 
       - name: remove temporary SSH key
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
         run: |
-         echo "Removing key from $RUNNER_TEMP/deploy_key"
-         rm -f "$RUNNER_TEMP/deploy_key" || true
+          if [ -n "$RUNNER_TEMP" ] && [ -f "$RUNNER_TEMP/deploy_key" ]; then
+            echo "Removing key from $RUNNER_TEMP/deploy_key"
+            rm -f "$RUNNER_TEMP/deploy_key" || true
+          else
+            echo "No temporary key to remove"
+          fi
